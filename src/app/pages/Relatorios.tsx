@@ -7,14 +7,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { TrendingUp, TrendingDown, DollarSign, Calendar, Download, FileText } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import jsPDF from 'jspdf';
 
 const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 // ============================================================
 // EXPORTAÇÃO PDF
 // ============================================================
-function gerarPDF(titulo: string, secoes: { titulo: string; linhas: string[][] }[]) {
+// O gerador de PDF (~350 KB) só é baixado quando alguém clica em "Exportar PDF"
+async function gerarPDF(titulo: string, secoes: { titulo: string; linhas: string[][] }[]) {
+  const { default: jsPDF } = await import('jspdf');
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
   const marginL = 14;

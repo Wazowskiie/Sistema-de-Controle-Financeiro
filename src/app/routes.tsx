@@ -1,31 +1,36 @@
 import { createBrowserRouter } from 'react-router';
 import { Layout } from './components/Layout';
-import { Dashboard } from './pages/Dashboard';
-import { Vendas } from './pages/Vendas';
-import { Estoque } from './pages/Estoque';
-import { Despesas } from './pages/Despesas';
-import { Relatorios } from './pages/Relatorios';
-import { Vendedores } from './pages/Vendedores';
-import { Leads } from './pages/Leads';
-import { Clientes } from './pages/Clientes';
-import { Integracoes } from './pages/Integracoes';
-import Transportes from './pages/Transportes';
+
+export function Carregando() {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'sans-serif', color: '#888' }}>
+      Carregando...
+    </div>
+  );
+}
+
+// Cada página vira um arquivo separado, baixado só quando é aberta.
+const pagina = (carregar: () => Promise<Record<string, unknown>>, nome: string) => async () => {
+  const mod = await carregar();
+  return { Component: (mod[nome] ?? mod.default) as React.ComponentType };
+};
 
 export const router = createBrowserRouter([
   {
     path: '/',
     element: <Layout />,
+    HydrateFallback: Carregando,
     children: [
-      { index: true, element: <Dashboard /> },
-      { path: 'vendas', element: <Vendas /> },
-      { path: 'vendedores', element: <Vendedores /> },
-      { path: 'leads', element: <Leads /> },
-      { path: 'clientes', element: <Clientes /> },
-      { path: 'estoque', element: <Estoque /> },
-      { path: 'despesas', element: <Despesas /> },
-      { path: 'relatorios', element: <Relatorios /> },
-      { path: 'integracoes', element: <Integracoes /> },
-      { path: 'transportes', element: <Transportes /> },
+      { index: true, lazy: pagina(() => import('./pages/Dashboard'), 'Dashboard') },
+      { path: 'vendas', lazy: pagina(() => import('./pages/Vendas'), 'Vendas') },
+      { path: 'vendedores', lazy: pagina(() => import('./pages/Vendedores'), 'Vendedores') },
+      { path: 'leads', lazy: pagina(() => import('./pages/Leads'), 'Leads') },
+      { path: 'clientes', lazy: pagina(() => import('./pages/Clientes'), 'Clientes') },
+      { path: 'estoque', lazy: pagina(() => import('./pages/Estoque'), 'Estoque') },
+      { path: 'despesas', lazy: pagina(() => import('./pages/Despesas'), 'Despesas') },
+      { path: 'relatorios', lazy: pagina(() => import('./pages/Relatorios'), 'Relatorios') },
+      { path: 'integracoes', lazy: pagina(() => import('./pages/Integracoes'), 'Integracoes') },
+      { path: 'transportes', lazy: pagina(() => import('./pages/Transportes'), 'Transportes') },
     ],
   },
 ]);

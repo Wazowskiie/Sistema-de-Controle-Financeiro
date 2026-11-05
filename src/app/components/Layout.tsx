@@ -1,4 +1,4 @@
-import { Link, useLocation, Outlet } from 'react-router';
+import { Link, useLocation, Outlet, useNavigation } from 'react-router';
 import { LayoutDashboard, ShoppingCart, Car, Receipt, FileText, Menu, Users, UserPlus, Plug, Truck, LogOut, Contact, Eye } from 'lucide-react';
 import { Button } from './ui/button';
 import { Sheet, SheetContent, SheetTrigger } from './ui/sheet';
@@ -62,8 +62,12 @@ function Sidebar() {
 }
 
 export function Layout() {
+  const navigation = useNavigation();
   return (
     <div className="flex h-screen">
+      {navigation.state === 'loading' && (
+        <div className="fixed inset-x-0 top-0 z-50 h-0.5 animate-pulse bg-primary" aria-hidden />
+      )}
       <aside className="hidden w-64 md:block"><Sidebar /></aside>
       <div className="md:hidden">
         <Sheet>
