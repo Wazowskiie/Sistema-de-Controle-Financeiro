@@ -1,4 +1,5 @@
-// Sistema de gerenciamento de dados com localStorage - Versão Completa
+// store.ts — AutoGestão integrado com Supabase
+import { supabase } from './supabase';
 
 export interface Veiculo {
   id: string;
@@ -12,9 +13,10 @@ export interface Veiculo {
   dataEntrada: string;
   km: number;
   placa: string;
-  // Origem do veículo
-  origem: 'leilao' | 'particular' | 'troca' | 'concessionaria' | 'outros';
-  // Dados específicos de leilão
+  origem: 'leilao' | 'particular' | 'troca' | 'concessionaria' | 'netcarros' | 'site' | 'outros';
+  cidadeOrigem?: string;
+  estadoOrigem?: string;
+  anoModelo?: string;
   dadosLeilao?: {
     nomeEventoLeilao: string;
     numeroLote: string;
@@ -22,8 +24,8 @@ export interface Veiculo {
     estadoOrigem: string;
     dataArrematacao: string;
   };
-  // Transporte
   transporteId?: string;
+  statusPagamento?: 'pago' | 'pendente';
 }
 
 export interface Cliente {
@@ -76,35 +78,24 @@ export interface Venda {
   telefone: string;
   vendedorId?: string;
   vendedor?: string;
-  
-  // Valores
   valorVenda: number;
   valorCusto: number;
   desconto: number;
   motivoDesconto?: string;
   valorEntrada: number;
-  
-  // Financiamento
   financiado: boolean;
   valorFinanciado?: number;
   numeroParcelas?: number;
   valorParcela?: number;
   banco?: string;
-  
-  // Trade-in
   tradeIn?: TradeIn;
   valorTradeIn?: number;
-  
-  // Pagamento
+  placaVeiculo?: string;
   formaPagamento: 'dinheiro' | 'financiamento' | 'cartao' | 'transferencia';
   dataVenda: string;
-  
-  // Documentação
   statusDocumentacao: 'pendente' | 'em_andamento' | 'concluida';
   documentosEntregues: string[];
   observacoes?: string;
-  
-  // Calculados
   lucro: number;
   comissao?: number;
 }
@@ -123,7 +114,6 @@ export interface Lead {
   dataUltimoContato?: string;
   proximoFollowUp?: string;
   observacoes?: string;
-  // Dados da integração
   integrationSource?: {
     platform: string;
     externalId?: string;
@@ -156,512 +146,570 @@ export interface Despesa {
 export interface Transporte {
   id: string;
   veiculoId: string;
-  veiculo: string; // Marca/Modelo para exibição
+  veiculo: string;
   placa: string;
-
-  // Informações de transporte
   transportadora: string;
   nomeMotorista?: string;
   telefoneMotorista?: string;
   placaCegonha?: string;
-
-  // Origem e destino
   cidadeOrigem: string;
   estadoOrigem: string;
   cidadeDestino: string;
   estadoDestino: string;
-
-  // Datas e status
   dataColeta: string;
   previsaoEntrega: string;
   dataEntregaReal?: string;
   status: 'aguardando_coleta' | 'em_transito' | 'em_transito_atrasado' | 'entregue' | 'cancelado';
-
-  // Custos
   valorFrete: number;
-
-  // Rastreamento
   localizacaoAtual?: string;
   ultimaAtualizacao?: string;
   observacoes?: string;
 }
 
-// Contador para garantir IDs únicos
-let idCounter = Date.now();
+// ============================================================
+// HELPERS
+// ============================================================
 
-function generateId(): string {
-  return `${Date.now()}-${idCounter++}-${Math.random().toString(36).substr(2, 9)}`;
+function safeDate(value: string | null | undefined): string {
+  if (!value) return '';
+  return value.substring(0, 10);
 }
 
-class Store {
-  private STORE_VERSION = '3.0';
-  
-  constructor() {
-    this.checkAndMigrateStore();
-  }
+// ============================================================
+// MAPEADORES
+// ============================================================
 
-  private checkAndMigrateStore() {
-    const version = localStorage.getItem('storeVersion');
-    if (version !== this.STORE_VERSION) {
-      localStorage.clear();
-      localStorage.setItem('storeVersion', this.STORE_VERSION);
-    }
-  }
+function mapVeiculo(row: any): Veiculo {
+  return {
+    id: row.id,
+    marca: row.marca,
+    modelo: row.modelo,
+    ano: row.ano_fabricacao,
+    anoModelo: row.ano_modelo_texto ?? undefined,
+    cor: row.cor ?? '',
+    preco: Number(row.preco_venda),
+    precoCompra: Number(row.preco_compra),
+    status: row.status,
+    dataEntrada: safeDate(row.data_entrada),
+    km: row.km ?? 0,
+    placa: row.placa ?? '',
+    origem: row.observacoes?.startsWith('origem:')
+      ? row.observacoes.split(':')[1].split(' ')[0].trim()
+      : 'outros',
+    cidadeOrigem: row.cidade_origem ?? undefined,
+    estadoOrigem: row.estado_origem ?? undefined,
+    dadosLeilao: row.observacoes?.includes('leilao_json:')
+      ? JSON.parse(row.observacoes.split('leilao_json:')[1])
+      : undefined,
+    transporteId: undefined,
+    statusPagamento: row.status_pagamento ?? 'pendente',
+  };
+}
+
+function mapVendedor(row: any): Vendedor {
+  return {
+    id: row.id,
+    nome: row.nome,
+    cpf: row.email ?? '',
+    telefone: row.telefone ?? '',
+    email: row.email ?? '',
+    percentualComissao: Number(row.comissao_pct),
+    dataContratacao: safeDate(row.criado_em),
+    ativo: row.ativo,
+  };
+}
+
+function mapVenda(row: any): Venda {
+  return {
+    id: row.id,
+    veiculoId: row.veiculo_id,
+    veiculo: row.veiculos ? `${row.veiculos.marca} ${row.veiculos.modelo}` : '',
+    placaVeiculo: row.veiculos?.placa ?? '',
+    clienteId: row.cliente_id ?? '',
+    cliente: row.clientes?.nome ?? '',
+    cpf: row.clientes?.cpf ?? '',
+    telefone: row.clientes?.telefone ?? '',
+    vendedorId: row.vendedor_id ?? undefined,
+    vendedor: row.vendedores?.nome ?? undefined,
+    valorVenda: Number(row.preco_venda),
+    valorCusto: Number(row.preco_custo),
+    desconto: 0,
+    valorEntrada: Number(row.entrada ?? 0),
+    financiado: row.tipo_pagamento === 'financiado',
+    valorFinanciado: row.tipo_pagamento === 'financiado' ? Number(row.preco_venda) - Number(row.entrada ?? 0) : undefined,
+    numeroParcelas: row.num_parcelas ?? undefined,
+    valorParcela: row.valor_parcela ? Number(row.valor_parcela) : undefined,
+    banco: row.banco_financeira ?? undefined,
+    formaPagamento: row.tipo_pagamento === 'avista' ? 'dinheiro' : 'financiamento',
+    dataVenda: safeDate(row.data_venda),
+    statusDocumentacao: row.status_doc === 'concluido' ? 'concluida' : row.status_doc === 'em_andamento' ? 'em_andamento' : 'pendente',
+    documentosEntregues: [],
+    observacoes: row.observacoes ?? undefined,
+    lucro: Number(row.lucro_bruto ?? 0),
+    comissao: row.comissao_valor ? Number(row.comissao_valor) : undefined,
+  };
+}
+
+function mapLead(row: any): Lead {
+  return {
+    id: row.id,
+    nome: row.nome,
+    telefone: row.telefone ?? '',
+    email: row.email ?? undefined,
+    veiculoInteresse: row.veiculo_interesse ?? undefined,
+    origem: row.origem === 'facebook' || row.origem === 'instagram' ? 'redes_sociais'
+      : row.origem === 'whatsapp' ? 'whatsapp'
+      : row.origem === 'olx' || row.origem === 'webmotors' || row.origem === 'mercadolivre' ? 'site'
+      : (row.origem as any) ?? 'telefone',
+    status: row.status === 'novo' ? 'novo'
+      : row.status === 'contato' ? 'contato_realizado'
+      : row.status === 'proposta' ? 'proposta_enviada'
+      : row.status === 'negociacao' ? 'negociacao'
+      : row.status === 'convertido' ? 'convertido'
+      : row.status === 'perdido' ? 'perdido'
+      : 'novo',
+    vendedorId: row.vendedor_id ?? undefined,
+    dataCriacao: safeDate(row.criado_em),
+    dataUltimoContato: undefined,
+    proximoFollowUp: safeDate(row.proximo_contato) || undefined,
+    observacoes: row.observacoes ?? undefined,
+  };
+}
+
+function mapDespesa(row: any): Despesa {
+  return {
+    id: row.id,
+    descricao: row.descricao,
+    categoria: row.categoria as Despesa['categoria'],
+    valor: Number(row.valor),
+    data: safeDate(row.data_despesa),
+    observacoes: row.observacoes ?? undefined,
+  };
+}
+
+function mapCliente(row: any): Cliente {
+  return {
+    id: row.id,
+    nome: row.nome,
+    cpf: row.cpf ?? '',
+    telefone: row.telefone ?? '',
+    email: row.email ?? undefined,
+    dataCadastro: safeDate(row.criado_em),
+  };
+}
+
+// ============================================================
+// STORE
+// ============================================================
+
+class Store {
 
   // ========== VEÍCULOS ==========
-  getVeiculos(): Veiculo[] {
-    const data = localStorage.getItem('veiculos');
-    return data ? JSON.parse(data) : [];
+
+  async getVeiculosAsync(): Promise<Veiculo[]> {
+    const { data, error } = await supabase.from('veiculos').select('*').order('criado_em', { ascending: false });
+    if (error) { console.error('getVeiculos:', error); return []; }
+    return (data ?? []).map(mapVeiculo);
   }
 
-  saveVeiculo(veiculo: Omit<Veiculo, 'id'>): void {
-    const veiculos = this.getVeiculos();
-    const novoVeiculo: Veiculo = { ...veiculo, id: generateId() };
-    veiculos.push(novoVeiculo);
-    localStorage.setItem('veiculos', JSON.stringify(veiculos));
+  getVeiculos(): Veiculo[] { return []; }
+
+  async saveVeiculo(veiculo: Omit<Veiculo, 'id'>): Promise<{ error: any }> {
+    const origemStr = `origem:${veiculo.origem}` + (veiculo.dadosLeilao ? ` leilao_json:${JSON.stringify(veiculo.dadosLeilao)}` : '');
+    const { error } = await supabase.from('veiculos').insert({
+      tipo_veiculo: 'carro',
+      marca: veiculo.marca,
+      modelo: veiculo.modelo,
+      ano_fabricacao: veiculo.ano,
+      ano_modelo: veiculo.ano,
+      ano_modelo_texto: veiculo.anoModelo ?? null,
+      cor: veiculo.cor,
+      placa: veiculo.placa || null,
+      km: veiculo.km,
+      preco_compra: veiculo.precoCompra,
+      preco_venda: veiculo.preco,
+      status: veiculo.status,
+      data_entrada: veiculo.dataEntrada,
+      cidade_origem: veiculo.cidadeOrigem ?? null,
+      estado_origem: veiculo.estadoOrigem ?? null,
+      observacoes: origemStr,
+      status_pagamento: 'pendente',
+    });
+    if (error) console.error('saveVeiculo:', error);
+    return { error };
   }
 
-  updateVeiculo(id: string, veiculo: Partial<Veiculo>): void {
-    const veiculos = this.getVeiculos();
-    const index = veiculos.findIndex(v => v.id === id);
-    if (index !== -1) {
-      veiculos[index] = { ...veiculos[index], ...veiculo };
-      localStorage.setItem('veiculos', JSON.stringify(veiculos));
-    }
+  async updateVeiculo(id: string, veiculo: Partial<Veiculo>): Promise<void> {
+    const update: any = {};
+    if (veiculo.preco !== undefined) update.preco_venda = veiculo.preco;
+    if (veiculo.precoCompra !== undefined) update.preco_compra = veiculo.precoCompra;
+    if (veiculo.status !== undefined) update.status = veiculo.status;
+    if (veiculo.km !== undefined) update.km = veiculo.km;
+    if (veiculo.cor !== undefined) update.cor = veiculo.cor;
+    if (veiculo.dataEntrada !== undefined) update.data_entrada = veiculo.dataEntrada;
+    if (veiculo.statusPagamento !== undefined) update.status_pagamento = veiculo.statusPagamento;
+    const { error } = await supabase.from('veiculos').update(update).eq('id', id);
+    if (error) console.error('updateVeiculo:', error);
   }
 
-  deleteVeiculo(id: string): void {
-    const veiculos = this.getVeiculos().filter(v => v.id !== id);
-    localStorage.setItem('veiculos', JSON.stringify(veiculos));
+  async deleteVeiculo(id: string): Promise<void> {
+    const { error } = await supabase.from('veiculos').delete().eq('id', id);
+    if (error) console.error('deleteVeiculo:', error);
   }
 
   // ========== CLIENTES ==========
-  getClientes(): Cliente[] {
-    const data = localStorage.getItem('clientes');
-    return data ? JSON.parse(data) : [];
+
+  async getClientesAsync(): Promise<Cliente[]> {
+    const { data, error } = await supabase.from('clientes').select('*').order('criado_em', { ascending: false });
+    if (error) { console.error('getClientes:', error); return []; }
+    return (data ?? []).map(mapCliente);
   }
 
-  saveCliente(cliente: Omit<Cliente, 'id' | 'dataCadastro'>): Cliente {
-    const clientes = this.getClientes();
-    const novoCliente: Cliente = {
-      ...cliente,
-      id: generateId(),
-      dataCadastro: new Date().toISOString().split('T')[0],
-    };
-    clientes.push(novoCliente);
-    localStorage.setItem('clientes', JSON.stringify(clientes));
-    return novoCliente;
-  }
-
-  updateCliente(id: string, cliente: Partial<Cliente>): void {
-    const clientes = this.getClientes();
-    const index = clientes.findIndex(c => c.id === id);
-    if (index !== -1) {
-      clientes[index] = { ...clientes[index], ...cliente };
-      localStorage.setItem('clientes', JSON.stringify(clientes));
+  async saveCliente(cliente: Omit<Cliente, 'id' | 'dataCadastro'>): Promise<Cliente> {
+    // Se tem CPF, verifica se já existe antes de tentar inserir (evita erro 409)
+    if (cliente.cpf) {
+      const { data: existente } = await supabase
+        .from('clientes')
+        .select('*')
+        .eq('cpf', cliente.cpf)
+        .maybeSingle();
+      if (existente) return mapCliente(existente);
     }
+    const { data, error } = await supabase.from('clientes').insert({
+      nome: cliente.nome,
+      cpf: cliente.cpf || null,
+      telefone: cliente.telefone,
+      email: cliente.email ?? null,
+    }).select().single();
+    if (error) { console.error('saveCliente:', error); throw error; }
+    return mapCliente(data);
   }
 
-  getClienteByCpf(cpf: string): Cliente | undefined {
-    return this.getClientes().find(c => c.cpf === cpf);
+  async getClienteByCpf(cpf: string): Promise<Cliente | undefined> {
+    const { data } = await supabase.from('clientes').select('*').eq('cpf', cpf).maybeSingle();
+    return data ? mapCliente(data) : undefined;
   }
 
   // ========== VENDEDORES ==========
-  getVendedores(): Vendedor[] {
-    const data = localStorage.getItem('vendedores');
-    return data ? JSON.parse(data) : [];
+
+  async getVendedoresAsync(): Promise<Vendedor[]> {
+    const { data, error } = await supabase.from('vendedores').select('*').order('nome');
+    if (error) { console.error('getVendedores:', error); return []; }
+    return (data ?? []).map(mapVendedor);
   }
 
-  saveVendedor(vendedor: Omit<Vendedor, 'id'>): void {
-    const vendedores = this.getVendedores();
-    const novoVendedor: Vendedor = { ...vendedor, id: generateId() };
-    vendedores.push(novoVendedor);
-    localStorage.setItem('vendedores', JSON.stringify(vendedores));
+  getVendedores(): Vendedor[] { return []; }
+
+  async saveVendedor(vendedor: Omit<Vendedor, 'id'>): Promise<void> {
+    const { error } = await supabase.from('vendedores').insert({
+      nome: vendedor.nome,
+      email: vendedor.email,
+      telefone: vendedor.telefone,
+      comissao_pct: vendedor.percentualComissao,
+      ativo: vendedor.ativo,
+    });
+    if (error) console.error('saveVendedor:', error);
   }
 
-  updateVendedor(id: string, vendedor: Partial<Vendedor>): void {
-    const vendedores = this.getVendedores();
-    const index = vendedores.findIndex(v => v.id === id);
-    if (index !== -1) {
-      vendedores[index] = { ...vendedores[index], ...vendedor };
-      localStorage.setItem('vendedores', JSON.stringify(vendedores));
-    }
+  async updateVendedor(id: string, vendedor: Partial<Vendedor>): Promise<void> {
+    const update: any = {};
+    if (vendedor.ativo !== undefined) update.ativo = vendedor.ativo;
+    if (vendedor.percentualComissao !== undefined) update.comissao_pct = vendedor.percentualComissao;
+    const { error } = await supabase.from('vendedores').update(update).eq('id', id);
+    if (error) console.error('updateVendedor:', error);
   }
 
-  deleteVendedor(id: string): void {
-    const vendedores = this.getVendedores().filter(v => v.id !== id);
-    localStorage.setItem('vendedores', JSON.stringify(vendedores));
+  async deleteVendedor(id: string): Promise<void> {
+    const { error } = await supabase.from('vendedores').delete().eq('id', id);
+    if (error) console.error('deleteVendedor:', error);
   }
 
   // ========== VENDAS ==========
-  getVendas(): Venda[] {
-    const data = localStorage.getItem('vendas');
-    return data ? JSON.parse(data) : [];
+
+  async getVendasAsync(): Promise<Venda[]> {
+    const { data, error } = await supabase
+      .from('vendas')
+      .select('*, veiculos(marca, modelo, placa), clientes(nome, cpf, telefone), vendedores(nome)')
+      .order('data_venda', { ascending: false });
+    if (error) { console.error('getVendas:', error); return []; }
+    return (data ?? []).map(mapVenda);
   }
 
-  saveVenda(venda: Omit<Venda, 'id' | 'lucro' | 'comissao'>): void {
-    const vendas = this.getVendas();
-    
-    // Calcular lucro
-    let lucro = venda.valorVenda - venda.valorCusto - venda.desconto;
-    if (venda.valorTradeIn) {
-      lucro -= venda.valorTradeIn;
+  getVendas(): Venda[] { return []; }
+
+  async saveVenda(venda: Omit<Venda, 'id'>): Promise<void> {
+    let clienteId = venda.clienteId;
+    if (!clienteId || clienteId === '') {
+      const cliente = await this.saveCliente({
+        nome: venda.cliente,
+        cpf: venda.cpf,
+        telefone: venda.telefone,
+      });
+      clienteId = cliente.id;
     }
-    
-    // Calcular comissão
-    let comissao = 0;
-    if (venda.vendedorId) {
-      const vendedor = this.getVendedores().find(v => v.id === venda.vendedorId);
-      if (vendedor) {
-        comissao = lucro * (vendedor.percentualComissao / 100);
-      }
-    }
-    
-    const novaVenda: Venda = {
-      ...venda,
-      id: generateId(),
-      lucro,
-      comissao,
-    };
-    
-    vendas.push(novaVenda);
-    localStorage.setItem('vendas', JSON.stringify(vendas));
-    
-    // Atualizar status do veículo
-    this.updateVeiculo(venda.veiculoId, { status: 'vendido' });
+    const { error } = await supabase.from('vendas').insert({
+      veiculo_id: venda.veiculoId,
+      cliente_id: clienteId,
+      vendedor_id: venda.vendedorId ?? null,
+      preco_venda: venda.valorVenda,
+      preco_custo: venda.valorCusto,
+      comissao_valor: venda.comissao ?? null,
+      tipo_pagamento: venda.financiado ? 'financiado' : 'avista',
+      entrada: venda.valorEntrada,
+      num_parcelas: venda.numeroParcelas ?? 0,
+      valor_parcela: venda.valorParcela ?? 0,
+      banco_financeira: venda.banco ?? null,
+      status_doc: venda.statusDocumentacao === 'concluida' ? 'concluido'
+        : venda.statusDocumentacao === 'em_andamento' ? 'em_andamento' : 'pendente',
+      data_venda: venda.dataVenda,
+      observacoes: venda.observacoes ?? null,
+    });
+    if (error) console.error('saveVenda:', error);
   }
 
-  updateVenda(id: string, venda: Partial<Venda>): void {
-    const vendas = this.getVendas();
-    const index = vendas.findIndex(v => v.id === id);
-    if (index !== -1) {
-      vendas[index] = { ...vendas[index], ...venda };
-      localStorage.setItem('vendas', JSON.stringify(vendas));
+  async deleteVenda(id: string): Promise<void> {
+    // Busca veiculoId antes de deletar para reverter status
+    const { data } = await supabase.from('vendas').select('veiculo_id').eq('id', id).single();
+    const { error } = await supabase.from('vendas').delete().eq('id', id);
+    if (error) { console.error('deleteVenda:', error); return; }
+    // Reverte veículo para disponível
+    if (data?.veiculo_id) {
+      await supabase.from('veiculos').update({ status: 'disponivel' }).eq('id', data.veiculo_id);
     }
-  }
-
-  deleteVenda(id: string): void {
-    const vendas = this.getVendas().filter(v => v.id !== id);
-    localStorage.setItem('vendas', JSON.stringify(vendas));
   }
 
   // ========== LEADS ==========
-  getLeads(): Lead[] {
-    const data = localStorage.getItem('leads');
-    return data ? JSON.parse(data) : [];
+
+  async getLeadsAsync(): Promise<Lead[]> {
+    const { data, error } = await supabase.from('leads').select('*').order('criado_em', { ascending: false });
+    if (error) { console.error('getLeads:', error); return []; }
+    return (data ?? []).map(mapLead);
   }
 
-  saveLead(lead: Omit<Lead, 'id' | 'dataCriacao'>): void {
-    const leads = this.getLeads();
-    const novoLead: Lead = {
-      ...lead,
-      id: generateId(),
-      dataCriacao: new Date().toISOString().split('T')[0],
+  getLeads(): Lead[] { return []; }
+
+  async saveLead(lead: Omit<Lead, 'id' | 'dataCriacao'>): Promise<void> {
+    const statusMap: Record<string, string> = {
+      novo: 'novo', contato_realizado: 'contato', proposta_enviada: 'proposta',
+      negociacao: 'negociacao', convertido: 'convertido', perdido: 'perdido',
     };
-    leads.push(novoLead);
-    localStorage.setItem('leads', JSON.stringify(leads));
-  }
-
-  updateLead(id: string, lead: Partial<Lead>): void {
-    const leads = this.getLeads();
-    const index = leads.findIndex(l => l.id === id);
-    if (index !== -1) {
-      leads[index] = { ...leads[index], ...lead };
-      localStorage.setItem('leads', JSON.stringify(leads));
-    }
-  }
-
-  deleteLead(id: string): void {
-    const leads = this.getLeads().filter(l => l.id !== id);
-    localStorage.setItem('leads', JSON.stringify(leads));
-  }
-
-  convertLeadToCliente(leadId: string): Cliente | null {
-    const lead = this.getLeads().find(l => l.id === leadId);
-    if (!lead) return null;
-
-    const cliente = this.saveCliente({
+    const origemMap: Record<string, string> = {
+      redes_sociais: 'facebook', whatsapp: 'whatsapp', site: 'site',
+      telefone: 'manual', indicacao: 'manual', presencial: 'manual',
+    };
+    const { error } = await supabase.from('leads').insert({
       nome: lead.nome,
-      cpf: '',
       telefone: lead.telefone,
-      email: lead.email,
+      email: lead.email ?? null,
+      veiculo_interesse: lead.veiculoInteresse ?? null,
+      origem: origemMap[lead.origem] ?? 'manual',
+      status: statusMap[lead.status] ?? 'novo',
+      vendedor_id: lead.vendedorId ?? null,
+      observacoes: lead.observacoes ?? null,
+      proximo_contato: lead.proximoFollowUp ? new Date(lead.proximoFollowUp).toISOString() : null,
     });
+    if (error) console.error('saveLead:', error);
+  }
 
-    this.updateLead(leadId, { status: 'convertido' });
+  async updateLead(id: string, lead: Partial<Lead>): Promise<void> {
+    const update: any = {};
+    if (lead.status) {
+      const statusMap: Record<string, string> = {
+        novo: 'novo', contato_realizado: 'contato', proposta_enviada: 'proposta',
+        negociacao: 'negociacao', convertido: 'convertido', perdido: 'perdido',
+      };
+      update.status = statusMap[lead.status] ?? lead.status;
+    }
+    if (lead.vendedorId !== undefined) update.vendedor_id = lead.vendedorId;
+    if (lead.observacoes !== undefined) update.observacoes = lead.observacoes;
+    if (lead.proximoFollowUp !== undefined) update.proximo_contato = new Date(lead.proximoFollowUp).toISOString();
+    const { error } = await supabase.from('leads').update(update).eq('id', id);
+    if (error) console.error('updateLead:', error);
+  }
+
+  async deleteLead(id: string): Promise<void> {
+    const { error } = await supabase.from('leads').delete().eq('id', id);
+    if (error) console.error('deleteLead:', error);
+  }
+
+  async convertLeadToCliente(leadId: string): Promise<Cliente | null> {
+    const leads = await this.getLeadsAsync();
+    const lead = leads.find(l => l.id === leadId);
+    if (!lead) return null;
+    const cliente = await this.saveCliente({ nome: lead.nome, cpf: '', telefone: lead.telefone, email: lead.email });
+    await this.updateLead(leadId, { status: 'convertido' });
     return cliente;
   }
 
   // ========== INTERAÇÕES ==========
-  getInteracoes(): Interacao[] {
-    const data = localStorage.getItem('interacoes');
-    return data ? JSON.parse(data) : [];
+
+  async getInteracoesAsync(): Promise<Interacao[]> {
+    const { data, error } = await supabase.from('interacoes_leads').select('*').order('criado_em', { ascending: false });
+    if (error) { console.error('getInteracoes:', error); return []; }
+    return (data ?? []).map((row: any) => ({
+      id: row.id,
+      tipo: row.tipo as Interacao['tipo'],
+      leadId: row.lead_id ?? undefined,
+      vendedorId: row.vendedor_id ?? undefined,
+      descricao: row.descricao,
+      data: safeDate(row.criado_em),
+    }));
   }
 
-  saveInteracao(interacao: Omit<Interacao, 'id'>): void {
-    const interacoes = this.getInteracoes();
-    const novaInteracao: Interacao = { ...interacao, id: generateId() };
-    interacoes.push(novaInteracao);
-    localStorage.setItem('interacoes', JSON.stringify(interacoes));
+  getInteracoes(): Interacao[] { return []; }
 
-    // Atualizar data de último contato do lead
-    if (interacao.leadId) {
-      this.updateLead(interacao.leadId, { dataUltimoContato: interacao.data });
-    }
+  async saveInteracao(interacao: Omit<Interacao, 'id'>): Promise<void> {
+    const { error } = await supabase.from('interacoes_leads').insert({
+      lead_id: interacao.leadId ?? null,
+      vendedor_id: interacao.vendedorId ?? null,
+      tipo: interacao.tipo,
+      descricao: interacao.descricao,
+    });
+    if (error) console.error('saveInteracao:', error);
   }
 
-  getInteracoesByLead(leadId: string): Interacao[] {
-    return this.getInteracoes().filter(i => i.leadId === leadId);
-  }
-
-  getInteracoesByCliente(clienteId: string): Interacao[] {
-    return this.getInteracoes().filter(i => i.clienteId === clienteId);
-  }
-
-  getInteracoesByVenda(vendaId: string): Interacao[] {
-    return this.getInteracoes().filter(i => i.vendaId === vendaId);
+  async getInteracoesByLead(leadId: string): Promise<Interacao[]> {
+    const { data, error } = await supabase.from('interacoes_leads').select('*').eq('lead_id', leadId).order('criado_em', { ascending: false });
+    if (error) return [];
+    return (data ?? []).map((row: any) => ({
+      id: row.id, tipo: row.tipo, leadId: row.lead_id, vendedorId: row.vendedor_id,
+      descricao: row.descricao, data: safeDate(row.criado_em),
+    }));
   }
 
   // ========== DESPESAS ==========
-  getDespesas(): Despesa[] {
-    const data = localStorage.getItem('despesas');
-    return data ? JSON.parse(data) : [];
+
+  async getDespesasAsync(): Promise<Despesa[]> {
+    const { data, error } = await supabase.from('despesas').select('*').order('data_despesa', { ascending: false });
+    if (error) { console.error('getDespesas:', error); return []; }
+    return (data ?? []).map(mapDespesa);
   }
 
-  saveDespesa(despesa: Omit<Despesa, 'id'>): void {
-    const despesas = this.getDespesas();
-    const novaDespesa: Despesa = { ...despesa, id: generateId() };
-    despesas.push(novaDespesa);
-    localStorage.setItem('despesas', JSON.stringify(despesas));
+  getDespesas(): Despesa[] { return []; }
+
+  async saveDespesa(despesa: Omit<Despesa, 'id'>): Promise<void> {
+    const { error } = await supabase.from('despesas').insert({
+      descricao: despesa.descricao,
+      categoria: despesa.categoria,
+      valor: despesa.valor,
+      data_despesa: despesa.data,
+      observacoes: despesa.observacoes ?? null,
+    });
+    if (error) console.error('saveDespesa:', error);
   }
 
-  deleteDespesa(id: string): void {
-    const despesas = this.getDespesas().filter(d => d.id !== id);
-    localStorage.setItem('despesas', JSON.stringify(despesas));
+  async deleteDespesa(id: string): Promise<void> {
+    const { error } = await supabase.from('despesas').delete().eq('id', id);
+    if (error) console.error('deleteDespesa:', error);
   }
 
   // ========== TRANSPORTES ==========
-  getTransportes(): Transporte[] {
-    const data = localStorage.getItem('transportes');
-    return data ? JSON.parse(data) : [];
+
+  async getTransportesAsync(): Promise<Transporte[]> {
+    const { data, error } = await supabase.from('transportes').select('*').order('criado_em', { ascending: false });
+    if (error) { console.error('getTransportes:', error); return []; }
+    return (data ?? []).map((row: any): Transporte => ({
+      id: row.id,
+      veiculoId: row.veiculo_id,
+      veiculo: row.veiculo,
+      placa: row.placa,
+      transportadora: row.transportadora,
+      nomeMotorista: row.nome_motorista ?? undefined,
+      telefoneMotorista: row.telefone_motorista ?? undefined,
+      placaCegonha: row.placa_cegonha ?? undefined,
+      cidadeOrigem: row.cidade_origem,
+      estadoOrigem: row.estado_origem,
+      cidadeDestino: row.cidade_destino,
+      estadoDestino: row.estado_destino,
+      dataColeta: safeDate(row.data_coleta),
+      previsaoEntrega: safeDate(row.previsao_entrega),
+      dataEntregaReal: safeDate(row.data_entrega_real) || undefined,
+      status: row.status,
+      valorFrete: Number(row.valor_frete),
+      localizacaoAtual: row.localizacao_atual ?? undefined,
+      ultimaAtualizacao: row.ultima_atualizacao ?? undefined,
+      observacoes: row.observacoes ?? undefined,
+    }));
   }
 
-  saveTransporte(transporte: Omit<Transporte, 'id'>): void {
-    const transportes = this.getTransportes();
-    const novoTransporte: Transporte = { ...transporte, id: generateId() };
-    transportes.push(novoTransporte);
-    localStorage.setItem('transportes', JSON.stringify(transportes));
+  getTransportes(): Transporte[] { return []; }
 
-    // Atualizar veículo com ID do transporte e status em_transito
-    this.updateVeiculo(transporte.veiculoId, {
-      transporteId: novoTransporte.id,
-      status: 'em_transito'
+  async saveTransporte(transporte: Omit<Transporte, 'id'>): Promise<void> {
+    const { error } = await supabase.from('transportes').insert({
+      veiculo_id: transporte.veiculoId,
+      veiculo: transporte.veiculo,
+      placa: transporte.placa,
+      transportadora: transporte.transportadora,
+      nome_motorista: transporte.nomeMotorista ?? null,
+      telefone_motorista: transporte.telefoneMotorista ?? null,
+      placa_cegonha: transporte.placaCegonha ?? null,
+      cidade_origem: transporte.cidadeOrigem,
+      estado_origem: transporte.estadoOrigem,
+      cidade_destino: transporte.cidadeDestino,
+      estado_destino: transporte.estadoDestino,
+      data_coleta: transporte.dataColeta,
+      previsao_entrega: transporte.previsaoEntrega,
+      data_entrega_real: transporte.dataEntregaReal ?? null,
+      status: transporte.status,
+      valor_frete: transporte.valorFrete,
+      localizacao_atual: transporte.localizacaoAtual ?? null,
+      ultima_atualizacao: transporte.ultimaAtualizacao ?? null,
+      observacoes: transporte.observacoes ?? null,
     });
+    if (error) { console.error('saveTransporte:', error); return; }
+    await this.updateVeiculo(transporte.veiculoId, { status: 'em_transito' });
   }
 
-  updateTransporte(id: string, transporte: Partial<Transporte>): void {
-    const transportes = this.getTransportes();
-    const index = transportes.findIndex(t => t.id === id);
-    if (index !== -1) {
-      transportes[index] = { ...transportes[index], ...transporte };
-      localStorage.setItem('transportes', JSON.stringify(transportes));
-
-      // Se transporte foi entregue, atualizar status do veículo
-      if (transporte.status === 'entregue') {
-        const transp = transportes[index];
-        this.updateVeiculo(transp.veiculoId, {
-          status: 'disponivel',
-          dataEntrada: transporte.dataEntregaReal || new Date().toISOString().split('T')[0]
-        });
-      }
-    }
-  }
-
-  deleteTransporte(id: string): void {
-    const transportes = this.getTransportes().filter(t => t.id !== id);
-    localStorage.setItem('transportes', JSON.stringify(transportes));
-  }
-
-  getTransportesByVeiculo(veiculoId: string): Transporte[] {
-    return this.getTransportes().filter(t => t.veiculoId === veiculoId);
-  }
-
-  // ========== DADOS DE EXEMPLO ==========
-  initializeSampleData(): void {
-    // Vendedores
-    if (this.getVendedores().length === 0) {
-      this.saveVendedor({
-        nome: 'Carlos Vendas',
-        cpf: '111.222.333-44',
-        telefone: '(11) 99999-1111',
-        email: 'carlos@loja.com',
-        percentualComissao: 3,
-        dataContratacao: '2025-01-10',
-        ativo: true,
-      });
-      this.saveVendedor({
-        nome: 'Ana Paula',
-        cpf: '222.333.444-55',
-        telefone: '(11) 99999-2222',
-        email: 'ana@loja.com',
-        percentualComissao: 2.5,
-        dataContratacao: '2025-06-15',
-        ativo: true,
+  async updateTransporte(id: string, transporte: Partial<Transporte>): Promise<void> {
+    const update: any = {};
+    if (transporte.status !== undefined) update.status = transporte.status;
+    if (transporte.transportadora !== undefined) update.transportadora = transporte.transportadora;
+    if (transporte.nomeMotorista !== undefined) update.nome_motorista = transporte.nomeMotorista ?? null;
+    if (transporte.telefoneMotorista !== undefined) update.telefone_motorista = transporte.telefoneMotorista ?? null;
+    if (transporte.placaCegonha !== undefined) update.placa_cegonha = transporte.placaCegonha ?? null;
+    if (transporte.cidadeDestino !== undefined) update.cidade_destino = transporte.cidadeDestino;
+    if (transporte.estadoDestino !== undefined) update.estado_destino = transporte.estadoDestino;
+    if (transporte.dataColeta !== undefined) update.data_coleta = transporte.dataColeta;
+    if (transporte.previsaoEntrega !== undefined) update.previsao_entrega = transporte.previsaoEntrega;
+    if (transporte.valorFrete !== undefined) update.valor_frete = transporte.valorFrete;
+    if (transporte.localizacaoAtual !== undefined) update.localizacao_atual = transporte.localizacaoAtual;
+    if (transporte.ultimaAtualizacao !== undefined) update.ultima_atualizacao = transporte.ultimaAtualizacao;
+    if (transporte.dataEntregaReal !== undefined) update.data_entrega_real = transporte.dataEntregaReal;
+    if (transporte.observacoes !== undefined) update.observacoes = transporte.observacoes ?? null;
+    const { error } = await supabase.from('transportes').update(update).eq('id', id);
+    if (error) { console.error('updateTransporte:', error); return; }
+    if (transporte.status === 'entregue') {
+      const transportes = await this.getTransportesAsync();
+      const t = transportes.find(t => t.id === id);
+      if (t) await this.updateVeiculo(t.veiculoId, {
+        status: 'disponivel',
+        dataEntrada: transporte.dataEntregaReal ?? new Date().toISOString().split('T')[0],
       });
     }
-
-    // Veículos
-    if (this.getVeiculos().length === 0) {
-      const veiculosExemplo: Omit<Veiculo, 'id'>[] = [
-        {
-          marca: 'Toyota',
-          modelo: 'Corolla',
-          ano: 2022,
-          cor: 'Prata',
-          preco: 125000,
-          precoCompra: 110000,
-          status: 'disponivel',
-          dataEntrada: '2026-04-15',
-          km: 25000,
-          placa: 'ABC-1234',
-          origem: 'leilao',
-          dadosLeilao: {
-            nomeEventoLeilao: 'Leilão SulBrasil Auto',
-            numeroLote: '12345',
-            cidadeOrigem: 'Porto Alegre',
-            estadoOrigem: 'RS',
-            dataArrematacao: '2026-04-01',
-          },
-        },
-        {
-          marca: 'Honda',
-          modelo: 'Civic',
-          ano: 2023,
-          cor: 'Preto',
-          preco: 145000,
-          precoCompra: 130000,
-          status: 'disponivel',
-          dataEntrada: '2026-04-20',
-          km: 15000,
-          placa: 'DEF-5678',
-          origem: 'particular',
-        },
-        {
-          marca: 'Volkswagen',
-          modelo: 'Jetta',
-          ano: 2021,
-          cor: 'Branco',
-          preco: 98000,
-          precoCompra: 85000,
-          status: 'disponivel',
-          dataEntrada: '2026-03-10',
-          km: 35000,
-          placa: 'GHI-9012',
-          origem: 'troca',
-        },
-        {
-          marca: 'Chevrolet',
-          modelo: 'Onix',
-          ano: 2023,
-          cor: 'Vermelho',
-          preco: 75000,
-          precoCompra: 68000,
-          status: 'disponivel',
-          dataEntrada: '2026-05-01',
-          km: 8000,
-          placa: 'JKL-3456',
-          origem: 'concessionaria',
-        },
-      ];
-      veiculosExemplo.forEach(v => this.saveVeiculo(v));
-    }
-
-    // Leads
-    if (this.getLeads().length === 0) {
-      const vendedores = this.getVendedores();
-      this.saveLead({
-        nome: 'Pedro Oliveira',
-        telefone: '(11) 98888-7777',
-        email: 'pedro@email.com',
-        veiculoInteresse: 'Honda Civic',
-        origem: 'whatsapp',
-        status: 'contato_realizado',
-        vendedorId: vendedores[0]?.id,
-        vendedor: vendedores[0]?.nome,
-        dataUltimoContato: '2026-05-05',
-        proximoFollowUp: '2026-05-08',
-        observacoes: 'Interessado em test drive',
-      });
-      this.saveLead({
-        nome: 'Juliana Costa',
-        telefone: '(11) 97777-6666',
-        origem: 'site',
-        status: 'novo',
-        vendedorId: vendedores[1]?.id,
-        vendedor: vendedores[1]?.nome,
-      });
-    }
-
-    // Transportes
-    if (this.getTransportes().length === 0) {
-      const veiculos = this.getVeiculos();
-      const veiculoLeilao = veiculos.find(v => v.origem === 'leilao');
-
-      if (veiculoLeilao && veiculoLeilao.dadosLeilao) {
-        this.saveTransporte({
-          veiculoId: veiculoLeilao.id,
-          veiculo: `${veiculoLeilao.marca} ${veiculoLeilao.modelo}`,
-          placa: veiculoLeilao.placa,
-          transportadora: 'TransCar Logística',
-          nomeMotorista: 'Roberto Silva',
-          telefoneMotorista: '(51) 99888-7777',
-          placaCegonha: 'XYZ-9876',
-          cidadeOrigem: veiculoLeilao.dadosLeilao.cidadeOrigem,
-          estadoOrigem: veiculoLeilao.dadosLeilao.estadoOrigem,
-          cidadeDestino: 'Curitiba',
-          estadoDestino: 'PR',
-          dataColeta: '2026-04-10',
-          previsaoEntrega: '2026-04-14',
-          status: 'entregue',
-          dataEntregaReal: '2026-04-15',
-          valorFrete: 2500,
-          localizacaoAtual: 'Entregue em Curitiba/PR',
-          ultimaAtualizacao: new Date().toISOString(),
-          observacoes: 'Transporte realizado com sucesso',
-        });
-      }
-    }
-
-    // Despesas
-    if (this.getDespesas().length === 0) {
-      const despesasExemplo: Omit<Despesa, 'id'>[] = [
-        {
-          descricao: 'Aluguel do Pátio',
-          categoria: 'aluguel',
-          valor: 5000,
-          data: '2026-05-01',
-        },
-        {
-          descricao: 'Salários Funcionários',
-          categoria: 'salarios',
-          valor: 15000,
-          data: '2026-05-05',
-        },
-        {
-          descricao: 'IPVA e Licenciamento',
-          categoria: 'impostos',
-          valor: 3200,
-          data: '2026-04-20',
-        },
-        {
-          descricao: 'Manutenção Veículos',
-          categoria: 'manutencao',
-          valor: 2500,
-          data: '2026-04-28',
-        },
-      ];
-      despesasExemplo.forEach(d => this.saveDespesa(d));
-    }
   }
+
+  async deleteTransporte(id: string): Promise<void> {
+    const { error } = await supabase.from('transportes').delete().eq('id', id);
+    if (error) console.error('deleteTransporte:', error);
+  }
+
+  async getTransportesByVeiculo(veiculoId: string): Promise<Transporte[]> {
+    const { data, error } = await supabase.from('transportes').select('*').eq('veiculo_id', veiculoId);
+    if (error) return [];
+    return (data ?? []).map((row: any): Transporte => ({
+      id: row.id, veiculoId: row.veiculo_id, veiculo: row.veiculo, placa: row.placa,
+      transportadora: row.transportadora, nomeMotorista: row.nome_motorista ?? undefined,
+      telefoneMotorista: row.telefone_motorista ?? undefined, placaCegonha: row.placa_cegonha ?? undefined,
+      cidadeOrigem: row.cidade_origem, estadoOrigem: row.estado_origem,
+      cidadeDestino: row.cidade_destino, estadoDestino: row.estado_destino,
+      dataColeta: safeDate(row.data_coleta), previsaoEntrega: safeDate(row.previsao_entrega),
+      dataEntregaReal: safeDate(row.data_entrega_real) || undefined, status: row.status,
+      valorFrete: Number(row.valor_frete), localizacaoAtual: row.localizacao_atual ?? undefined,
+      ultimaAtualizacao: row.ultima_atualizacao ?? undefined, observacoes: row.observacoes ?? undefined,
+    }));
+  }
+
+  initializeSampleData(): void {}
 }
 
 export const store = new Store();

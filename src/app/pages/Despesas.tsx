@@ -5,47 +5,26 @@ import { Plus, Trash2 } from 'lucide-react';
 import { store, Despesa } from '../lib/store';
 import { DespesaDialog } from '../components/DespesaDialog';
 import { Badge } from '../components/ui/badge';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '../components/ui/table';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '../components/ui/alert-dialog';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '../components/ui/alert-dialog';
+import { useAuth } from '../contexts/AuthContext';
 
 export function Despesas() {
   const [despesas, setDespesas] = useState<Despesa[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const { isVisualizador } = useAuth();
 
-  const loadData = () => {
-    setDespesas(store.getDespesas());
+  const loadData = async () => {
+    setLoading(true);
+    setDespesas(await store.getDespesasAsync());
+    setLoading(false);
   };
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  useEffect(() => { loadData(); }, []);
 
-  const handleDelete = (id: string) => {
-    store.deleteDespesa(id);
-    loadData();
-  };
-
-  const handleDespesaSaved = () => {
-    loadData();
-    setDialogOpen(false);
-  };
+  const handleDelete = async (id: string) => { await store.deleteDespesa(id); loadData(); };
+  const handleDespesaSaved = () => { loadData(); setDialogOpen(false); };
 
   const getCategoriaInfo = (categoria: string) => {
     const info: Record<string, { label: string; color: string }> = {
@@ -60,69 +39,40 @@ export function Despesas() {
   };
 
   const totalDespesas = despesas.reduce((sum, d) => sum + d.valor, 0);
-  
-  // Agrupar por categoria
   const despesasPorCategoria = despesas.reduce((acc, despesa) => {
-    const cat = despesa.categoria;
-    if (!acc[cat]) {
-      acc[cat] = 0;
-    }
-    acc[cat] += despesa.valor;
+    acc[despesa.categoria] = (acc[despesa.categoria] || 0) + despesa.valor;
     return acc;
   }, {} as Record<string, number>);
+
+  if (loading) return <div className="flex items-center justify-center h-64"><p className="text-muted-foreground">Carregando despesas...</p></div>;
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Despesas</h1>
-          <p className="text-muted-foreground">Gerencie as despesas operacionais</p>
-        </div>
-        <Button onClick={() => setDialogOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          Nova Despesa
-        </Button>
+        <div><h1 className="text-3xl font-bold">Despesas</h1><p className="text-muted-foreground">Gerencie as despesas operacionais</p></div>
+        {!isVisualizador && (
+          <Button onClick={() => setDialogOpen(true)}><Plus className="mr-2 h-4 w-4" />Nova Despesa</Button>
+        )}
       </div>
 
-      {/* Cards de Resumo */}
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Total de Despesas</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600">
-              {totalDespesas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-            </div>
-            <p className="text-xs text-muted-foreground">{despesas.length} registros</p>
-          </CardContent>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Total de Despesas</CardTitle></CardHeader>
+          <CardContent><div className="text-2xl font-bold text-red-600">{totalDespesas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</div><p className="text-xs text-muted-foreground">{despesas.length} registros</p></CardContent>
         </Card>
-
         {Object.entries(despesasPorCategoria).slice(0, 3).map(([categoria, valor]) => {
           const info = getCategoriaInfo(categoria);
           return (
             <Card key={categoria}>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">{info.label}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
-                  {valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {((valor / totalDespesas) * 100).toFixed(1)}% do total
-                </p>
-              </CardContent>
+              <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{info.label}</CardTitle></CardHeader>
+              <CardContent><div className="text-2xl font-bold">{valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</div><p className="text-xs text-muted-foreground">{((valor / totalDespesas) * 100).toFixed(1)}% do total</p></CardContent>
             </Card>
           );
         })}
       </div>
 
-      {/* Tabela de Despesas */}
       <Card>
-        <CardHeader>
-          <CardTitle>Lista de Despesas</CardTitle>
-        </CardHeader>
+        <CardHeader><CardTitle>Lista de Despesas</CardTitle></CardHeader>
         <CardContent>
           {despesas.length > 0 ? (
             <div className="overflow-x-auto">
@@ -134,7 +84,7 @@ export function Despesas() {
                     <TableHead>Categoria</TableHead>
                     <TableHead>Valor</TableHead>
                     <TableHead>Observações</TableHead>
-                    <TableHead className="text-right">Ações</TableHead>
+                    {!isVisualizador && <TableHead className="text-right">Ações</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -142,44 +92,22 @@ export function Despesas() {
                     const info = getCategoriaInfo(despesa.categoria);
                     return (
                       <TableRow key={despesa.id}>
-                        <TableCell>
-                          {new Date(despesa.data).toLocaleDateString('pt-BR')}
-                        </TableCell>
+                        <TableCell>{new Date(despesa.data + 'T12:00:00').toLocaleDateString('pt-BR')}</TableCell>
                         <TableCell className="font-medium">{despesa.descricao}</TableCell>
-                        <TableCell>
-                          <Badge className={info.color} variant="secondary">
-                            {info.label}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-red-600 font-medium">
-                          {despesa.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground max-w-[200px] truncate">
-                          {despesa.observacoes || '-'}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button variant="ghost" size="icon">
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Confirmar exclusão</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  Tem certeza que deseja excluir esta despesa? Esta ação não pode ser desfeita.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                <AlertDialogAction onClick={() => handleDelete(despesa.id)}>
-                                  Excluir
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        </TableCell>
+                        <TableCell><Badge className={info.color} variant="secondary">{info.label}</Badge></TableCell>
+                        <TableCell className="text-red-600 font-medium">{despesa.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</TableCell>
+                        <TableCell className="text-muted-foreground max-w-[200px] truncate">{despesa.observacoes || '-'}</TableCell>
+                        {!isVisualizador && (
+                          <TableCell className="text-right">
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild><Button variant="ghost" size="icon"><Trash2 className="h-4 w-4 text-destructive" /></Button></AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader><AlertDialogTitle>Confirmar exclusão</AlertDialogTitle><AlertDialogDescription>Tem certeza? Esta ação não pode ser desfeita.</AlertDialogDescription></AlertDialogHeader>
+                                <AlertDialogFooter><AlertDialogCancel>Cancelar</AlertDialogCancel><AlertDialogAction onClick={() => handleDelete(despesa.id)}>Excluir</AlertDialogAction></AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </TableCell>
+                        )}
                       </TableRow>
                     );
                   })}
@@ -189,20 +117,17 @@ export function Despesas() {
           ) : (
             <div className="text-center py-12">
               <p className="text-muted-foreground mb-4">Nenhuma despesa registrada</p>
-              <Button onClick={() => setDialogOpen(true)}>
-                <Plus className="mr-2 h-4 w-4" />
-                Registrar Primeira Despesa
-              </Button>
+              {!isVisualizador && (
+                <Button onClick={() => setDialogOpen(true)}><Plus className="mr-2 h-4 w-4" />Registrar Primeira Despesa</Button>
+              )}
             </div>
           )}
         </CardContent>
       </Card>
 
-      <DespesaDialog 
-        open={dialogOpen} 
-        onOpenChange={setDialogOpen}
-        onSave={handleDespesaSaved}
-      />
+      {!isVisualizador && (
+        <DespesaDialog open={dialogOpen} onOpenChange={setDialogOpen} onSave={handleDespesaSaved} />
+      )}
     </div>
   );
 }

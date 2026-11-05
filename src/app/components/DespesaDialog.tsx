@@ -13,16 +13,26 @@ interface DespesaDialogProps {
   onSave: () => void;
 }
 
+// FIX: new Date().toISOString() retorna UTC — em Fortaleza (UTC-3) pode virar
+// o dia anterior. Usa getFullYear/getMonth/getDate locais para evitar o -1 dia.
+function hoje(): string {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 export function DespesaDialog({ open, onOpenChange, onSave }: DespesaDialogProps) {
   const [descricao, setDescricao] = useState('');
   const [categoria, setCategoria] = useState<string>('');
   const [valor, setValor] = useState('');
-  const [data, setData] = useState(new Date().toISOString().split('T')[0]);
+  const [data, setData] = useState(hoje());
   const [observacoes, setObservacoes] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     store.saveDespesa({
       descricao,
       categoria: categoria as any,
@@ -31,13 +41,12 @@ export function DespesaDialog({ open, onOpenChange, onSave }: DespesaDialogProps
       observacoes: observacoes || undefined,
     });
 
-    // Limpar formulário
     setDescricao('');
     setCategoria('');
     setValor('');
-    setData(new Date().toISOString().split('T')[0]);
+    setData(hoje());
     setObservacoes('');
-    
+
     onSave();
   };
 
