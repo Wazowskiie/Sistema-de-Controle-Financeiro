@@ -429,7 +429,9 @@ class Store {
   async getVendasAsync(): Promise<Venda[]> {
     const { data, error } = await supabase
       .from('vendas')
-      .select('*, veiculos(marca, modelo, placa), clientes(nome, cpf, telefone), vendedores(nome)')
+      // Sem a coluna "documentos" (arquivos anexados, ~56 MB no total): ela faz a busca
+      // estourar o tempo limite do banco. Os documentos são carregados só ao abrir a venda.
+      .select('id, veiculo_id, cliente_id, vendedor_id, preco_venda, preco_custo, lucro_bruto, comissao_valor, tipo_pagamento, entrada, num_parcelas, valor_parcela, banco_financeira, tradein_veiculo, tradein_valor, status_doc, data_venda, observacoes, criado_em, atualizado_em, veiculos(marca, modelo, placa), clientes(nome, cpf, telefone), vendedores(nome)')
       .order('data_venda', { ascending: false });
     if (error) { console.error('getVendas:', error); return []; }
     return (data ?? []).map(mapVenda);
