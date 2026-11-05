@@ -1,3 +1,4 @@
+import { formatarData } from '../lib/datas';
 import { useState, useRef, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
@@ -288,7 +289,7 @@ export function VeiculoDetalhesModal({ veiculo, open, onOpenChange, onUpdate }: 
                     {[
                       ['Marca', veiculo.marca], ['Modelo', veiculo.modelo], ['Ano', veiculo.anoModelo || veiculo.ano],
                       ['Cor', veiculo.cor], ['Placa', veiculo.placa], ['Quilometragem', `${veiculo.km.toLocaleString('pt-BR')} km`],
-                      ['Data de Entrada', new Date(veiculo.dataEntrada).toLocaleDateString('pt-BR')],
+                      ['Data de Entrada', formatarData(veiculo.dataEntrada)],
                       ['Origem', veiculo.origem.charAt(0).toUpperCase() + veiculo.origem.slice(1)],
                       ['Cidade', veiculo.origem === 'leilao' && veiculo.dadosLeilao ? veiculo.dadosLeilao.cidadeOrigem : (veiculo.cidadeOrigem || '—')],
                       ['Estado', veiculo.origem === 'leilao' && veiculo.dadosLeilao ? veiculo.dadosLeilao.estadoOrigem : (veiculo.estadoOrigem || '—')],
@@ -330,7 +331,7 @@ export function VeiculoDetalhesModal({ veiculo, open, onOpenChange, onUpdate }: 
                     <div className="border rounded-lg p-4">
                       <h4 className="font-semibold text-sm mb-3">Dados do Leilão</h4>
                       <div className="grid grid-cols-2 gap-3">
-                        {[['Evento', veiculo.dadosLeilao.nomeEventoLeilao], ['Lote', veiculo.dadosLeilao.numeroLote], ['Cidade de Origem', veiculo.dadosLeilao.cidadeOrigem], ['Estado', veiculo.dadosLeilao.estadoOrigem], ['Data Arrematação', new Date(veiculo.dadosLeilao.dataArrematacao).toLocaleDateString('pt-BR')]].map(([label, value]) => (
+                        {[['Evento', veiculo.dadosLeilao.nomeEventoLeilao], ['Lote', veiculo.dadosLeilao.numeroLote], ['Cidade de Origem', veiculo.dadosLeilao.cidadeOrigem], ['Estado', veiculo.dadosLeilao.estadoOrigem], ['Data Arrematação', formatarData(veiculo.dadosLeilao.dataArrematacao)]].map(([label, value]) => (
                           <div key={label as string} className="bg-blue-50 rounded p-2"><p className="text-xs text-muted-foreground">{label}</p><p className="font-medium text-sm">{value}</p></div>
                         ))}
                       </div>
@@ -359,7 +360,7 @@ export function VeiculoDetalhesModal({ veiculo, open, onOpenChange, onUpdate }: 
                     <div className="space-y-2">
                       {arquivos.map(arq => (
                         <div key={arq.rowId} className="flex items-center justify-between p-3 border rounded-lg">
-                          <div className="flex items-center gap-3"><FileText className="h-4 w-4 text-muted-foreground" /><div><p className="text-sm font-medium">{arq.nome}</p><p className="text-xs text-muted-foreground">{tipoArquivoLabel[arq.tipo]} · {new Date(arq.dataUpload).toLocaleDateString('pt-BR')}</p></div></div>
+                          <div className="flex items-center gap-3"><FileText className="h-4 w-4 text-muted-foreground" /><div><p className="text-sm font-medium">{arq.nome}</p><p className="text-xs text-muted-foreground">{tipoArquivoLabel[arq.tipo]} · {formatarData(arq.dataUpload)}</p></div></div>
                           <div className="flex items-center gap-1">
                             {arq.conteudo && (<><Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleVisualizarArquivo(arq.conteudo!)}><Eye className="h-3.5 w-3.5" /></Button><a href={arq.conteudo} download={arq.nome}><Button variant="ghost" size="icon" className="h-7 w-7"><Download className="h-3.5 w-3.5" /></Button></a></>)}
                             {!isVisualizador && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={async () => { await deleteExtra(arq.rowId); const rows = await getExtras(veiculo.id, 'arquivo'); setArquivos(rows.map(r => ({ ...r.dados, rowId: r.id }))); }}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>}
@@ -418,7 +419,7 @@ export function VeiculoDetalhesModal({ veiculo, open, onOpenChange, onUpdate }: 
                     <div className="space-y-2">
                       {lancamentos.map(l => (
                         <div key={l.rowId} className="flex items-center justify-between p-3 border rounded-lg">
-                          <div><p className="text-sm font-medium">{l.descricao}</p><p className="text-xs text-muted-foreground">{tipoLancamentoLabel[l.tipo]} · {new Date(l.data).toLocaleDateString('pt-BR')}</p></div>
+                          <div><p className="text-sm font-medium">{l.descricao}</p><p className="text-xs text-muted-foreground">{tipoLancamentoLabel[l.tipo]} · {formatarData(l.data)}</p></div>
                           <div className="flex items-center gap-3">
                             <span className="font-semibold text-sm text-red-600">{l.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
                             {!isVisualizador && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={async () => { await deleteExtra(l.rowId); const rows = await getExtras(veiculo.id, 'lancamento'); setLancamentos(rows.map(r => ({ ...r.dados, rowId: r.id }))); }}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>}
@@ -450,7 +451,7 @@ export function VeiculoDetalhesModal({ veiculo, open, onOpenChange, onUpdate }: 
                       <div className="grid grid-cols-2 gap-2 text-sm">
                         <div><span className="text-muted-foreground">Fornecedor: </span>{entrada.nomeForncedor || '—'}</div>
                         <div><span className="text-muted-foreground">CPF/CNPJ: </span>{entrada.cpfCnpjFornecedor || '—'}</div>
-                        <div><span className="text-muted-foreground">Data: </span>{entrada.dataEntrada ? new Date(entrada.dataEntrada).toLocaleDateString('pt-BR') : '—'}</div>
+                        <div><span className="text-muted-foreground">Data: </span>{entrada.dataEntrada ? formatarData(entrada.dataEntrada) : '—'}</div>
                       </div>
                     </div>
                   )}

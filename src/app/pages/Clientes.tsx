@@ -1,3 +1,4 @@
+import { formatarData } from '../lib/datas';
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -45,7 +46,7 @@ function ClienteDetalhesModal({ cliente, vendas, open, onOpenChange }: {
             <div className="bg-muted rounded-lg px-4 py-1">
               {linha('Nome', cliente.nome)}
               {linha('CPF / CNPJ', cliente.cpf)}
-              {linha('Cadastrado em', cliente.dataCadastro ? new Date(cliente.dataCadastro).toLocaleDateString('pt-BR') : null)}
+              {linha('Cadastrado em', cliente.dataCadastro ? formatarData(cliente.dataCadastro) : null)}
             </div>
           </div>
 
@@ -231,7 +232,7 @@ export function Clientes() {
                           {total > 0 ? total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—'}
                         </TableCell>
                         <TableCell className="text-muted-foreground text-sm">
-                          {cliente.dataCadastro ? new Date(cliente.dataCadastro).toLocaleDateString('pt-BR') : '—'}
+                          {cliente.dataCadastro ? formatarData(cliente.dataCadastro) : '—'}
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-1">
