@@ -1,13 +1,12 @@
 import { useState } from 'react';
 import { supabase } from '../lib/supabase';
 
-type Mode = 'login' | 'register' | 'forgot';
+type Mode = 'login' | 'forgot';
 
 export function Login() {
   const [mode, setMode] = useState<Mode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -17,7 +16,6 @@ export function Login() {
     setError('');
     setSuccess('');
     setPassword('');
-    setConfirmPassword('');
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -25,18 +23,6 @@ export function Login() {
     setLoading(true); setError('');
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) setError('E-mail ou senha incorretos.');
-    setLoading(false);
-  };
-
-  const handleRegister = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    if (password !== confirmPassword) { setError('As senhas não coincidem.'); return; }
-    if (password.length < 6) { setError('A senha deve ter pelo menos 6 caracteres.'); return; }
-    setLoading(true);
-    const { error } = await supabase.auth.signUp({ email, password });
-    if (error) setError('Erro ao criar conta. Tente outro e-mail.');
-    else setSuccess('Conta criada! Verifique seu e-mail para confirmar.');
     setLoading(false);
   };
 
@@ -51,7 +37,6 @@ export function Login() {
 
   const titles: Record<Mode, { title: string; sub: string }> = {
     login: { title: 'Bem-vindo de volta', sub: 'Entre com sua conta para continuar' },
-    register: { title: 'Criar conta', sub: 'Preencha os dados para se cadastrar' },
     forgot: { title: 'Recuperar senha', sub: 'Enviaremos um link para seu e-mail' },
   };
 
@@ -93,6 +78,7 @@ export function Login() {
         .ag-divider-line{flex:1;height:1px;background:#f0f0f0;}
         .ag-divider-text{font-size:11px;color:#bbb;text-transform:uppercase;letter-spacing:0.4px;}
         .ag-back{font-size:12px;color:#378ADD;cursor:pointer;background:none;border:none;padding:0;font-family:'DM Sans',sans-serif;margin-top:10px;display:block;}
+        .ag-note{font-size:12px;color:#999;text-align:center;margin:16px 0 0;}
         .ag-back:hover{text-decoration:underline;}
         @media(max-width:640px){.ag-wrap{flex-direction:column;width:100%;min-height:100vh;border-radius:0;}.ag-left{width:100%;padding:28px 24px;min-height:180px;}.ag-right{padding:32px 24px;}}
       `}</style>
@@ -129,19 +115,7 @@ export function Login() {
               <div className="ag-field"><label className="ag-label">Senha</label><input className="ag-input" type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} required /></div>
               <button type="button" className="ag-forgot" onClick={() => reset('forgot')}>Esqueci minha senha</button>
               <button className="ag-btn" type="submit" disabled={loading}>{loading ? 'Entrando...' : 'Entrar'}</button>
-              <div className="ag-divider"><div className="ag-divider-line" /><span className="ag-divider-text">ou</span><div className="ag-divider-line" /></div>
-              <button type="button" className="ag-btn-secondary" onClick={() => reset('register')}>Criar conta</button>
-            </form>
-          )}
-
-          {/* CADASTRO */}
-          {mode === 'register' && !success && (
-            <form onSubmit={handleRegister}>
-              <div className="ag-field"><label className="ag-label">E-mail</label><input className="ag-input" type="email" placeholder="seu@email.com" value={email} onChange={e => setEmail(e.target.value)} required /></div>
-              <div className="ag-field"><label className="ag-label">Senha</label><input className="ag-input" type="password" placeholder="Mínimo 6 caracteres" value={password} onChange={e => setPassword(e.target.value)} required /></div>
-              <div className="ag-field"><label className="ag-label">Confirmar senha</label><input className="ag-input" type="password" placeholder="Repita a senha" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required /></div>
-              <button className="ag-btn" type="submit" disabled={loading}>{loading ? 'Criando conta...' : 'Criar conta'}</button>
-              <button type="button" className="ag-back" onClick={() => reset('login')}>← Voltar para o login</button>
+              <p className="ag-note">Não tem acesso? Peça ao administrador da loja.</p>
             </form>
           )}
 
@@ -154,7 +128,7 @@ export function Login() {
             </form>
           )}
 
-          {success && mode === 'register' && (
+          {success && (
             <button type="button" className="ag-back" onClick={() => reset('login')}>← Voltar para o login</button>
           )}
         </div>
